@@ -19,8 +19,28 @@ class QuoteStream():
             self.quotes.append(loader.load(file))
         
         self.indices = [0] * len(filenames)
+        self.from_time = from_time
+        self.to_time = to_time
             
     def next(self):
+        while True:
+            item = self._get_next_item()
+            if not item:
+                return item
+            
+            (_, _, candle_or_tick, _) = item
+            if not candle_or_tick:
+                return item
+            
+            (time, _) = candle_or_tick
+            if self.from_time and time < self.from_time:
+                continue
+            if self.to_time and time > self.to_time:
+                continue
+            
+            return item               
+        
+    def _get_next_item(self):
         for i in range(0, len(self.indices)):
             if self.indices[i] >= self.quotes[i].total_candles():
                 ticker = self.quotes[i].code
@@ -152,16 +172,16 @@ class EventLoop():
         from_dt = None
         if "from" in command:
             try:
-                from_dt = datetime.datetime.strptime("%Y-%m-%d %H:%M:%S", command["from"])
+                from_dt = datetime.datetime.strptime(command["from"], "%Y-%m-%d %H:%M:%S")
             except ValueError:
-                from_dt = datetime.datetime.strptime("%Y-%m-%d", command["from"])
+                from_dt = datetime.datetime.strptime(command["from"], "%Y-%m-%d")
             
         to_dt = None
         if "to" in command:
             try:
-                to_dt = datetime.datetime.strptime("%Y-%m-%d %H:%M:%S", command["to"])
+                to_dt = datetime.datetime.strptime(command["to"], "%Y-%m-%d %H:%M:%S")
             except ValueError:
-                to_dt = datetime.datetime.strptime("%Y-%m-%d", command["to"])
+                to_dt = datetime.datetime.strptime(command["to"], "%Y-%m-%d")
             
         delay = 0
         try:

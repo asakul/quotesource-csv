@@ -37,6 +37,45 @@ class Test(unittest.TestCase):
         ping = self.stream.recv_multipart()
         self.assertEqual("success", response["result"])
         self.assertEqual(b'\x03\x00\x00\x00\x02\x00\x00\x00', ping[1])
+        
+    def doBarsCheck(self, filename, min_date, max_date, expected_period):
+
+        with open(filename) as csvfile:
+            r = csv.DictReader(csvfile)
+        
+            for row in r:
+                this_time = datetime.datetime.strptime(row["<DATE>"] + "-" + row["<TIME>"], "%Y%m%d-%H%M%S")
+                if min_date and this_time < min_date:
+                    continue
+                if max_date and this_time >= max_date:
+                    continue
+                
+                dt = int((this_time - datetime.datetime(1970, 1, 1)).total_seconds())
+                
+                packet = self.stream.recv_multipart()
+                self.assertEqual("MOEX:GAZP", packet[0].decode('utf-8'))
+                data = packet[1]
+                (packet_type, timestamp, useconds, datatype, p_open, p_open_frac,
+                 p_high, p_high_frac, p_low, p_low_frac, p_close, p_close_frac, volume, summary_period_sec) = struct.unpack("<IQIIqiqiqiqiiI", data)
+                self.assertEqual(0x02, packet_type)
+                self.assertEqual(expected_period, summary_period_sec)
+                self.assertEqual(0x01, datatype)
+                true_open = float(row["<OPEN>"])
+                true_high = float(row["<HIGH>"])
+                true_low = float(row["<LOW>"])
+                true_close = float(row["<CLOSE>"])
+                true_vol = int(row["<VOL>"])
+                self.assertEqual(dt, timestamp)
+                self.assertEqual(0, useconds)
+                self.assertAlmostEqual(true_open, p_open + p_open_frac / 1000000000)
+                self.assertAlmostEqual(true_high, p_high + p_high_frac / 1000000000)
+                self.assertAlmostEqual(true_low, p_low + p_low_frac / 1000000000)
+                self.assertAlmostEqual(true_close, p_close + p_close_frac / 1000000000)
+                self.assertEqual(true_vol, volume)
+            
+            packet = self.stream.recv_multipart()
+            self.assertEqual("MOEX:GAZP", packet[0].decode('utf-8'))
+            self.assertEqual(struct.pack("<II", 0x03, 0x01), packet[1])
 
     def testStreamPing(self):
         self.control.send_json({"command" : "stream-ping"})
@@ -59,35 +98,16 @@ class Test(unittest.TestCase):
         self.control.send_json({ "command" : "start",
                                 "src" : ["test/data/GAZP_010101_151231.txt"]})
 
-        with open("test/data/GAZP_010101_151231.txt") as csvfile:
-            r = csv.DictReader(csvfile)
-        
-            for row in r:
-                packet = self.stream.recv_multipart()
-                self.assertEqual("MOEX:GAZP", packet[0].decode('utf-8'))
-                data = packet[1]
-                (packet_type, timestamp, useconds, datatype, p_open, p_open_frac,
-                 p_high, p_high_frac, p_low, p_low_frac, p_close, p_close_frac, volume, summary_period_sec) = struct.unpack("<IQIIqiqiqiqiiI", data)
-                self.assertEqual(0x02, packet_type)
-                self.assertEqual(86400, summary_period_sec)
-                self.assertEqual(0x01, datatype)
-                dt = int((datetime.datetime.strptime(row["<DATE>"] + "-" + row["<TIME>"], "%Y%m%d-%H%M%S") - datetime.datetime(1970, 1, 1)).total_seconds())
-                true_open = float(row["<OPEN>"])
-                true_high = float(row["<HIGH>"])
-                true_low = float(row["<LOW>"])
-                true_close = float(row["<CLOSE>"])
-                true_vol = int(row["<VOL>"])
-                self.assertEqual(dt, timestamp)
-                self.assertEqual(0, useconds)
-                self.assertAlmostEqual(true_open, p_open + p_open_frac / 1000000000)
-                self.assertAlmostEqual(true_high, p_high + p_high_frac / 1000000000)
-                self.assertAlmostEqual(true_low, p_low + p_low_frac / 1000000000)
-                self.assertAlmostEqual(true_close, p_close + p_close_frac / 1000000000)
-                self.assertEqual(true_vol, volume)
+        self.doBarsCheck("test/data/GAZP_010101_151231.txt", None, None, 86400)
             
-            packet = self.stream.recv_multipart()
-            self.assertEqual("MOEX:GAZP", packet[0].decode('utf-8'))
-            self.assertEqual(struct.pack("<II", 0x03, 0x01), packet[1])
+    def testBarFeed_timeBoundaries(self):
+        self.doStreamPing()
+        self.control.send_json({ "command" : "start",
+                                "src" : ["test/data/GAZP_010101_151231.txt"],
+                                "from" : "2010-01-01",
+                                "to" : "2011-01-01"})
+        
+        self.doBarsCheck("test/data/GAZP_010101_151231.txt", datetime.datetime(2010, 1, 1), datetime.datetime(2011, 1, 1), 86400)
             
 
 if __name__ == "__main__":
