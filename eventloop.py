@@ -11,12 +11,22 @@ import re
 import utils
 import quotes as li
 
+class EventloopError(Exception):
+    def __init__(self, value):
+        self.value = value
+        
+    def __str__(self):
+        return repr(self.value)
+
 class QuoteStream():
     def __init__(self, filenames, from_time, to_time):
         self.quotes = []
         loader = csvloader.CsvQuoteLoader()
         for file in filenames:
-            self.quotes.append(loader.load(file))
+            try:
+                self.quotes.append(loader.load(file))
+            except FileNotFoundError:
+                raise EventloopError("File not found: " + file)
         
         self.indices = [0] * len(filenames)
         self.from_time = from_time
@@ -137,6 +147,8 @@ class EventLoop():
                 self.stream.send_multipart([(self.exchange_id + ":" + ticker).encode('utf-8'), self._serializeCandle(item, period)])
         
     def startStream(self, src, from_time, to_time, delay):
+        if to_time and from_time and from_time >= to_time:
+            raise EventloopError("'from' should be earlier than 'to'")
         self.quote_stream = QuoteStream(src, from_time, to_time)
         self.stream_delay = delay
         if delay == 0:
@@ -195,8 +207,12 @@ class EventLoop():
         except KeyError:
             pass # Swallow
         
-        self.startStream(command["src"], from_dt, to_dt, delay)
-        self.control.send_json({"result" : "success"})
+        try:
+            self.startStream(command["src"], from_dt, to_dt, delay)
+            self.control.send_json({"result" : "success"})
+        except EventloopError as e:
+            self.control.send_json({"result" : "error", 
+                                    "reason" : str(e)})
         
     def _serializeTick(self, tick):
         pass

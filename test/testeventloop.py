@@ -107,7 +107,30 @@ class Test(unittest.TestCase):
                                 "from" : "2010-01-01",
                                 "to" : "2011-01-01"})
         
+        response = self.control.recv_json()
+        self.assertEqual("success", response["result"])
+        
         self.doBarsCheck("test/data/GAZP_010101_151231.txt", datetime.datetime(2010, 1, 1), datetime.datetime(2011, 1, 1), 86400)
+        
+    def testBarFeed_timeBoundaries_incorrectBoundaries(self):
+        self.doStreamPing()
+        self.control.send_json({ "command" : "start",
+                                "src" : ["test/data/GAZP_010101_151231.txt"],
+                                "from" : "2012-01-01",
+                                "to" : "2011-01-01"})
+        
+        response = self.control.recv_json()
+        
+        self.assertEqual("error", response["result"])
+        
+    def testBarFeed_timeBoundaries_invalidSource(self):
+        self.doStreamPing()
+        self.control.send_json({ "command" : "start",
+                                "src" : ["does-not-exist.txt"]})
+        
+        response = self.control.recv_json()
+        
+        self.assertEqual("error", response["result"])
             
 
 if __name__ == "__main__":
