@@ -99,5 +99,5 @@ class CsvQuoteLoader:
         minutes = int(time[2:4])
         sec = int(time[4:6])
 
-        return datetime.datetime(y, m, d, hour, minutes, sec, tzinfo=datetime.timezone.utc)
+        return datetime.datetime(y, m, d, hour, minutes, sec)
 

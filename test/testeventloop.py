@@ -6,6 +6,7 @@ import zmq
 import struct
 import csv
 from eventloop import EventLoop
+import datetime
 
 
 class Test(unittest.TestCase):
@@ -56,20 +57,38 @@ class Test(unittest.TestCase):
     def testBarFeed(self):
         self.doStreamPing()
         self.control.send_json({ "command" : "start",
-                                "src" : ["data/GAZP_010101_151231.txt"]})
+                                "src" : ["test/data/GAZP_010101_151231.txt"]})
 
-        with open("data/GAZP_010101_151231.txt") as csvfile:
+        with open("test/data/GAZP_010101_151231.txt") as csvfile:
             r = csv.DictReader(csvfile)
-            r.__next__() # Skip header
         
-            while True:
+            for row in r:
                 packet = self.stream.recv_multipart()
-                self.assertEqual("MOEX:GAZP", packet[0])
+                self.assertEqual("MOEX:GAZP", packet[0].decode('utf-8'))
                 data = packet[1]
-                (packet_type, timestamp, useconds, open, high, low, close, volume) = struct.unpack("<IQIddddI", data)
+                (packet_type, timestamp, useconds, datatype, p_open, p_open_frac,
+                 p_high, p_high_frac, p_low, p_low_frac, p_close, p_close_frac, volume, summary_period_sec) = struct.unpack("<IQIIqiqiqiqiiI", data)
                 self.assertEqual(0x02, packet_type)
+                self.assertEqual(86400, summary_period_sec)
+                self.assertEqual(0x01, datatype)
+                dt = int((datetime.datetime.strptime(row["<DATE>"] + "-" + row["<TIME>"], "%Y%m%d-%H%M%S") - datetime.datetime(1970, 1, 1)).total_seconds())
+                true_open = float(row["<OPEN>"])
+                true_high = float(row["<HIGH>"])
+                true_low = float(row["<LOW>"])
+                true_close = float(row["<CLOSE>"])
+                true_vol = int(row["<VOL>"])
+                self.assertEqual(dt, timestamp)
+                self.assertEqual(0, useconds)
+                self.assertAlmostEqual(true_open, p_open + p_open_frac / 1000000000)
+                self.assertAlmostEqual(true_high, p_high + p_high_frac / 1000000000)
+                self.assertAlmostEqual(true_low, p_low + p_low_frac / 1000000000)
+                self.assertAlmostEqual(true_close, p_close + p_close_frac / 1000000000)
+                self.assertEqual(true_vol, volume)
             
-
+            packet = self.stream.recv_multipart()
+            self.assertEqual("MOEX:GAZP", packet[0].decode('utf-8'))
+            self.assertEqual(struct.pack("<II", 0x03, 0x01), packet[1])
+            
 
 if __name__ == "__main__":
     #import sys;sys.argv = ['', 'Test.testName']

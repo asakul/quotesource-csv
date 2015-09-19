@@ -29,7 +29,7 @@ class Test(unittest.TestCase):
         self.assertAlmostEqual(first_candle.close_price, 218.8900000)
         self.assertEqual(5078252, first_candle.volume)
         
-        self.assertEqual(datetime.datetime(2006, 1, 23, tzinfo=datetime.timezone.utc), first_candle_time)
+        self.assertEqual(datetime.datetime(2006, 1, 23), first_candle_time)
         
     def testLoadsTickData(self):
         quotes = self.loader.load("test/data/GAZP_ticks.txt")
@@ -40,7 +40,7 @@ class Test(unittest.TestCase):
         self.assertAlmostEqual(138.45, first_tick.price)
         self.assertEqual(10, first_tick.volume)
         
-        self.assertEqual(datetime.datetime(2015, 4, 1, 9, 59, 59, tzinfo=datetime.timezone.utc), first_tick_time)
+        self.assertEqual(datetime.datetime(2015, 4, 1, 9, 59, 59), first_tick_time)
 
 
 if __name__ == "__main__":
