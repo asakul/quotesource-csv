@@ -138,7 +138,8 @@ class EventLoop():
             
     def incrementStreamCredit(self, peer_id):
         if not peer_id in self.streams:
-            raise Exception('Error: requested stream credit increment for non-started stream')
+            print('Error: requested stream credit increment for non-started stream')
+            return
         
         self.streams[peer_id].credit += 1
         
@@ -147,7 +148,7 @@ class EventLoop():
             if v.credit > 0:
                 next_item = v.next()
                 if not next_item:
-                    self.stopStream()
+                    self.stopStream(k)
                     return
                 (tick_mode, ticker, item, period) = next_item
                 
@@ -166,7 +167,7 @@ class EventLoop():
         self.streams[peer_id] = QuoteStream(src, from_time, to_time)
             
     def stopStream(self, peer_id):
-        del self.quote_stream[peer_id]
+        del self.streams[peer_id]
                 
     def processCommand(self, peer_id, command):
         try:
