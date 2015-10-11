@@ -116,7 +116,7 @@ class EventLoop():
         self.control.bind(self.control_endpoint_name)
         
         self.poller = zmq.Poller()
-        self.poller.register(self.control)
+        self.poller.register(self.control, zmq.POLLIN)
         self.run = True
         while self.run:
             events = dict(self.poller.poll(100))
