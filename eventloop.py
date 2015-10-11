@@ -10,6 +10,7 @@ import datetime
 import re
 import utils
 import quotes as li
+import json
 
 class EventloopError(Exception):
     def __init__(self, value):
@@ -31,6 +32,7 @@ class QuoteStream():
         self.indices = [0] * len(filenames)
         self.from_time = from_time
         self.to_time = to_time
+        self.credit = 0
             
     def next(self):
         while True:
@@ -83,16 +85,15 @@ class EventLoop():
     '''
 
 
-    def __init__(self, zeromq_context, control_endpoint, stream_endpoint, exchange_id):
+    def __init__(self, zeromq_context, control_endpoint, exchange_id):
         '''
         Constructor
         '''
         
         self.ctx = zeromq_context
         self.control_endpoint_name = control_endpoint
-        self.stream_endpoint_name = stream_endpoint
         self.exchange_id = exchange_id
-        self.quote_stream = None
+        self.streams = {}
         self.stream_delay = 0
         
         self.run = False
@@ -107,80 +108,81 @@ class EventLoop():
         self.run = False
         self.signal = self.ctx.socket(zmq.REQ)
         self.signal.connect(self.control_endpoint_name)
-        self.signal.send_json({"command" : "shutdown"})
+        self.signal.send_multipart([b'\x01', json.dumps({"command" : "shutdown"}).encode('utf-8')])
         self.thread.join(timeout)
     
     def eventLoop(self):
-        self.control = self.ctx.socket(zmq.REP)
+        self.control = self.ctx.socket(zmq.ROUTER)
         self.control.bind(self.control_endpoint_name)
-        
-        self.stream = self.ctx.socket(zmq.PUB)
-        self.stream.bind(self.stream_endpoint_name)
         
         self.poller = zmq.Poller()
         self.poller.register(self.control)
         self.run = True
         while self.run:
-            events = dict(self.poller.poll(self.stream_delay))
+            events = dict(self.poller.poll(100))
             if self.control in events:
-                command = self.control.recv_json()
-                self.handleCommand(command)
-            if self.quote_stream:
-                self.processStream()
+                if events[self.control] & zmq.POLLIN:
+                    in_packet = self.control.recv_multipart()
+                    peer_id = in_packet[0]
+                    self.handlePacket(peer_id, in_packet[2:])
+            self.processStreams()
+                    
                 
         self.control.close()
-        self.stream.close()
         
-    def processStream(self):
-        next_item = self.quote_stream.next()
-        if not next_item:
-            self.stopStream()
-            return
-        (tick_mode, ticker, item, period) = next_item
+    def handlePacket(self, peer_id, in_packet):
+        if in_packet[0] == b'\x01':
+            self.processCommand(peer_id, json.loads(in_packet[1].decode('utf-8')))
+        elif in_packet[0] == b'\x03':
+            self.incrementStreamCredit(peer_id)
+            
+    def incrementStreamCredit(self, peer_id):
+        if not peer_id in self.streams:
+            raise Exception('Error: requested stream credit increment for non-started stream')
         
-        if not item:
-            self.stream.send_multipart([(self.exchange_id + ":" + ticker).encode('utf-8'), self._endOfStreamPacket()])
-        else:
-            if tick_mode:
-                self.stream.send(self._serializeTick(item))
-            else:
-                self.stream.send_multipart([(self.exchange_id + ":" + ticker).encode('utf-8'), self._serializeCandle(item, period)])
+        self.streams[peer_id].credit += 1
         
-    def startStream(self, src, from_time, to_time, delay):
+    def processStreams(self):
+        for k, v in self.streams.items():
+            if v.credit > 0:
+                next_item = v.next()
+                if not next_item:
+                    self.stopStream()
+                    return
+                (tick_mode, ticker, item, period) = next_item
+                
+                if not item:
+                    self.control.send_multipart([k, b'', b'\x02', (self.exchange_id + ":" + ticker).encode('utf-8'), self._endOfStreamPacket()])
+                else:
+                    if tick_mode:
+                        self.control.send_multipart([k, b'', b'\x02', (self.exchange_id + ":" + ticker).encode('utf-8'), self._serializeTick(item)])
+                    else:
+                        self.control.send_multipart([k, b'', b'\x02', (self.exchange_id + ":" + ticker).encode('utf-8'), self._serializeCandle(item, period)])
+                v.credit -= 1
+        
+    def startStream(self, peer_id, src, from_time, to_time, delay):
         if to_time and from_time and from_time >= to_time:
             raise EventloopError("'from' should be earlier than 'to'")
-        self.quote_stream = QuoteStream(src, from_time, to_time)
-        self.stream_delay = delay
-        if delay == 0:
-            self.poller.register(self.stream)
+        self.streams[peer_id] = QuoteStream(src, from_time, to_time)
             
-    def stopStream(self):
-        if self.stream_delay == 0:
-            self.poller.unregister(self.stream)
-        self.quote_stream = None
+    def stopStream(self, peer_id):
+        del self.quote_stream[peer_id]
                 
-    def handleCommand(self, command):
+    def processCommand(self, peer_id, command):
         try:
             if command["command"] == "shutdown":
-                self.handleShutdown()
-            elif command["command"] == "stream-ping":
-                self.handleStreamPing()
+                self.handleShutdown(peer_id)
             elif command["command"] == "start":
-                self.handleStart(command)
+                self.handleStart(peer_id, command)
         except KeyError:
             pass
         
-    def handleShutdown(self):
-        self.control.send_json({"result" : "success"})
+    def handleShutdown(self, peer_id):
+        self.control.send_multipart([peer_id, b'', b'\x01', json.dumps({"result" : "success"}).encode('utf-8')])
         self.run = False
-        
-    def handleStreamPing(self):
-        self.control.send_json({"result" : "success"})
-        self.stream.send_multipart([self.exchange_id.encode('utf-8'),
-                                    struct.pack("<ii", 0x03, 0x02)])
     
         
-    def handleStart(self, command):
+    def handleStart(self, peer_id, command):
         from_dt = None
         if "from" in command:
             try:
@@ -208,14 +210,16 @@ class EventLoop():
             pass # Swallow
         
         try:
-            self.startStream(command["src"], from_dt, to_dt, delay)
-            self.control.send_json({"result" : "success"})
+            self.startStream(peer_id, command["src"], from_dt, to_dt, delay)
+            self.control.send_multipart([peer_id, b'', b'\x01', json.dumps({"result" : "success"}).encode('utf-8')])
         except EventloopError as e:
-            self.control.send_json({"result" : "error", 
-                                    "reason" : str(e)})
+            self.control.send_multipart([peer_id, b'', b'\x01', json.dumps({"result" : "error", 
+                                    "reason" : str(e)}).encode('utf-8')])
         
     def _serializeTick(self, tick):
-        pass
+        timestamp = int((tick[0] - datetime.datetime(1970, 1, 1)).total_seconds())
+        (price_int, price_frac) = utils.float_to_fixed(tick[1].price)
+        return struct.pack("<IQIIqii", 0x01, timestamp, 0, 0x01, price_int, price_frac, int(tick[1].volume))
     
     def _serializeCandle(self, candle, period):
         timestamp = int((candle[0] - datetime.datetime(1970, 1, 1)).total_seconds())

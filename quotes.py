@@ -12,7 +12,8 @@ class TickerInterval(Enum):
         min_30 = 7
         min_15 = 8
         min_5 = 9
-        min_1 = 10
+        min_1 = 10,
+        ticks = 11
 
 
 class IntervalInfo:
@@ -32,7 +33,8 @@ intervals = {TickerInterval.week: IntervalInfo(TickerInterval.week, datetime.tim
         TickerInterval.min_30 : IntervalInfo(TickerInterval.min_30, datetime.timedelta(minutes=30), "30 min", "30"),
         TickerInterval.min_15 : IntervalInfo(TickerInterval.min_15, datetime.timedelta(minutes=15), "15 min", "15"),
         TickerInterval.min_5 : IntervalInfo(TickerInterval.min_5, datetime.timedelta(minutes=5), "5 min", "5"),
-        TickerInterval.min_1 : IntervalInfo(TickerInterval.min_1, datetime.timedelta(minutes=1), "1 min", "1")}
+        TickerInterval.min_1 : IntervalInfo(TickerInterval.min_1, datetime.timedelta(minutes=1), "1 min", "1"),
+        TickerInterval.ticks : IntervalInfo(TickerInterval.ticks, datetime.timedelta(seconds=0), "tick", "0")}
 
 def interval_by_short_id(short_id):
     for (k, v) in intervals.items():
