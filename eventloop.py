@@ -110,6 +110,9 @@ class EventLoop():
         self.signal.connect(self.control_endpoint_name)
         self.signal.send_multipart([b'\x01', json.dumps({"command" : "shutdown"}).encode('utf-8')])
         self.thread.join(timeout)
+        
+    def wait(self):
+        self.thread.join()
     
     def eventLoop(self):
         self.control = self.ctx.socket(zmq.ROUTER)

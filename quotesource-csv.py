@@ -17,3 +17,4 @@ if __name__ == '__main__':
     ctx = zmq.Context.instance()
     loop = EventLoop(ctx, args.control_ep, args.exchange_id)
     loop.start()
+    loop.wait()
