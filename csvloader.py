@@ -4,8 +4,11 @@ import datetime
 import csv
 
 class CsvQuoteLoader:
-    def __init__(self):
+    def __init__(self, naive_delta=False):
         self.id = "csv"
+        self.naive_delta = naive_delta
+        self.prev_price = None
+        self.prev_buy = True
 
     def load(self, source):
         col_ticker = None
@@ -73,6 +76,17 @@ class CsvQuoteLoader:
                     candles.append((time, candle))
                 else:
                     price = float(row[col_last])
+                    if self.naive_delta:
+                        if self.prev_price is not None:
+                            if price > self.prev_price:
+                                self.prev_buy = True
+                            elif price < self.prev_price:
+                                self.prev_buy = False
+                                volume = -volume
+                            else:
+                                if not self.prev_buy:
+                                    volume = -volume
+                        self.prev_price = price
                     tick = li.Tick(time, price, volume)
                     candles.append((time, tick))
                     

@@ -20,9 +20,9 @@ class EventloopError(Exception):
         return repr(self.value)
 
 class QuoteStream():
-    def __init__(self, filenames, from_time, to_time):
+    def __init__(self, filenames, from_time, to_time, config):
         self.quotes = []
-        loader = csvloader.CsvQuoteLoader()
+        loader = csvloader.CsvQuoteLoader(config['naive-delta'])
         for file in filenames:
             try:
                 self.quotes.append(loader.load(file))
@@ -85,7 +85,7 @@ class EventLoop():
     '''
 
 
-    def __init__(self, zeromq_context, control_endpoint, exchange_id):
+    def __init__(self, zeromq_context, control_endpoint, exchange_id, config):
         '''
         Constructor
         '''
@@ -95,6 +95,7 @@ class EventLoop():
         self.exchange_id = exchange_id
         self.streams = {}
         self.stream_delay = 0
+        self.config = config
         
         self.run = False
         
@@ -167,7 +168,7 @@ class EventLoop():
     def startStream(self, peer_id, src, from_time, to_time, delay):
         if to_time and from_time and from_time >= to_time:
             raise EventloopError("'from' should be earlier than 'to'")
-        self.streams[peer_id] = QuoteStream(src, from_time, to_time)
+        self.streams[peer_id] = QuoteStream(src, from_time, to_time, self.config)
             
     def stopStream(self, peer_id):
         del self.streams[peer_id]
